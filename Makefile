@@ -15,7 +15,7 @@ build:
 .PHONY: debug
 debug: clean tidy
 	go build -ldflags $(LDFLAGS) -o $(BUILD_PATH)/ ./cmd/...
-	./bin/influxd -config ./influxdb.conf
+	./bin/influxd -config ./config.toml
 
 .PHONY: tidy
 tidy:
