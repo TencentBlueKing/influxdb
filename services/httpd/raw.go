@@ -63,7 +63,9 @@ func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta
 		h.httpError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer rs.Close()
+	if rs != nil {
+		defer rs.Close()
+	}
 
 	readResponse, err := GetReadResponse(rs, slimit)
 	if err != nil {
