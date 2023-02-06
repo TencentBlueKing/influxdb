@@ -15,6 +15,8 @@ import (
 	"github.com/influxdata/influxdb/storage/reads/datatypes"
 	"github.com/influxdata/influxdb/tsdb"
 	"github.com/influxdata/influxql"
+	"math"
+	"strconv"
 
 	"net/http"
 	"strings"
@@ -43,6 +45,12 @@ func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta
 	field := r.FormValue("field")
 	where := strings.TrimSpace(r.FormValue("where"))
 
+	slimitStr := r.FormValue("slimit")
+	slimit, err := strconv.ParseInt(slimitStr, 10, 64)
+	if err != nil {
+		slimit = math.MaxInt64
+	}
+
 	readRequest, err := GetReadRequest(db, rp, measurement, field, where)
 	if err != nil {
 		h.httpError(w, err.Error(), http.StatusInternalServerError)
@@ -56,7 +64,7 @@ func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta
 		return
 	}
 
-	readResponse, err := GetReadResponse(rs)
+	readResponse, err := GetReadResponse(rs, slimit)
 	if err != nil {
 		h.httpError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -104,14 +112,20 @@ func (f *FormatWriter) Response(resp *remote.ReadResponse) error {
 	return err
 }
 
-func GetReadResponse(rs reads.ResultSet) (*remote.ReadResponse, error) {
+func GetReadResponse(rs reads.ResultSet, slimit int64) (*remote.ReadResponse, error) {
 	resp := &remote.ReadResponse{
 		Results: []*remote.QueryResult{{}},
 	}
 	if rs == nil {
 		return resp, nil
 	}
+	seriesIndex := int64(0)
 	for rs.Next() {
+		if slimit > 0 && seriesIndex >= slimit {
+			rs.Close()
+			return resp, nil
+		}
+
 		cur := rs.Cursor()
 		if cur == nil {
 			// no data for series key + field combination
@@ -146,6 +160,7 @@ func GetReadResponse(rs reads.ResultSet) (*remote.ReadResponse, error) {
 
 			// There was data for the series.
 			if series != nil {
+				seriesIndex++
 				resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, series)
 			}
 		case tsdb.IntegerArrayCursor:
@@ -173,6 +188,7 @@ func GetReadResponse(rs reads.ResultSet) (*remote.ReadResponse, error) {
 
 			// There was data for the series.
 			if series != nil {
+				seriesIndex++
 				resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, series)
 			}
 		case tsdb.UnsignedArrayCursor:
@@ -226,12 +242,6 @@ func GetReadRequest(db, rp, measurement, field, where string) (*datatypes.ReadFi
 	predicate, err := exprToNode(cond)
 	if err != nil {
 		return nil, err
-	}
-
-	// 限制只能查询最近 365 天的数据
-	minTimeLimit := time.Now().Add(time.Hour * 24 * 365 * -1)
-	if timeRange.MinTimeNano() < minTimeLimit.UnixNano() {
-		return nil, fmt.Errorf("start time %s < %s", timeRange.Min.String(), minTimeLimit.String())
 	}
 
 	rq := &datatypes.ReadFilterRequest{
@@ -296,7 +306,7 @@ func (v *exprToNodeVisitor) mapOpToComparison(op influxql.Token) datatypes.Node_
 	case influxql.NEQ:
 		return datatypes.ComparisonNotEqual
 	case influxql.NEQREGEX:
-		return datatypes.ComparisonNotEqual
+		return datatypes.ComparisonNotRegex
 	case influxql.LT:
 		return datatypes.ComparisonLess
 	case influxql.LTE:
