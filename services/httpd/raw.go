@@ -63,6 +63,7 @@ func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta
 		h.httpError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	defer rs.Close()
 
 	readResponse, err := GetReadResponse(rs, slimit)
 	if err != nil {
@@ -122,7 +123,6 @@ func GetReadResponse(rs reads.ResultSet, slimit int64) (*remote.ReadResponse, er
 	seriesIndex := int64(0)
 	for rs.Next() {
 		if slimit > 0 && seriesIndex >= slimit {
-			rs.Close()
 			return resp, nil
 		}
 
