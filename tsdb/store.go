@@ -311,17 +311,11 @@ func (s *Store) loadShards() error {
 			continue
 		}
 
-		// Load series file.
-		sfile, err := s.openSeriesFile(db.Name())
-		if err != nil {
-			return err
-		}
-
 		// Retrieve database index.
-		idx, err := s.createIndexIfNotExists(db.Name())
-		if err != nil {
-			return err
-		}
+		//idx, err := s.createIndexIfNotExists(db.Name())
+		//if err != nil {
+		//	return err
+		//}
 
 		// Load each retention policy within the database directory.
 		rpDirs, err := ioutil.ReadDir(dbPath)
@@ -383,7 +377,6 @@ func (s *Store) loadShards() error {
 
 					// Copy options and assign shared index.
 					opt := s.EngineOptions
-					opt.InmemIndex = idx
 
 					// Provide an implementation of the ShardIDSets
 					opt.SeriesIDSets = shardSet{store: s, db: db}
@@ -394,7 +387,12 @@ func (s *Store) loadShards() error {
 					}
 
 					// Open engine.
-					shard := NewShard(shardID, path, walPath, sfile, opt)
+					shard, err := NewShard(shardID, path, walPath, opt)
+					if err != nil {
+						log.Info("Failed to new shard", logger.Shard(shardID), zap.Error(err))
+						resC <- &res{err: fmt.Errorf("Failed to new shard: %d: %s", shardID, err)}
+						return
+					}
 
 					// Disable compactions, writes and queries until all shards are loaded
 					shard.EnableOnOpen = false
@@ -503,49 +501,10 @@ func (s *Store) epochsForShards(shards []*Shard) map[uint64]*epochTracker {
 	return out
 }
 
-// openSeriesFile either returns or creates a series file for the provided
-// database. It must be called under a full lock.
-func (s *Store) openSeriesFile(database string) (*SeriesFile, error) {
-	if sfile := s.sfiles[database]; sfile != nil {
-		return sfile, nil
-	}
-
-	sfile := NewSeriesFile(filepath.Join(s.path, database, SeriesFileDirectory))
-	sfile.WithMaxCompactionConcurrency(s.EngineOptions.Config.SeriesFileMaxConcurrentSnapshotCompactions)
-	sfile.Logger = s.baseLogger
-	if err := sfile.Open(); err != nil {
-		return nil, err
-	}
-	s.sfiles[database] = sfile
-	return sfile, nil
-}
-
 func (s *Store) seriesFile(database string) *SeriesFile {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.sfiles[database]
-}
-
-// createIndexIfNotExists returns a shared index for a database, if the inmem
-// index is being used. If the TSI index is being used, then this method is
-// basically a no-op.
-func (s *Store) createIndexIfNotExists(name string) (interface{}, error) {
-	if idx := s.indexes[name]; idx != nil {
-		return idx, nil
-	}
-
-	sfile, err := s.openSeriesFile(name)
-	if err != nil {
-		return nil, err
-	}
-
-	idx, err := NewInmemIndex(name, sfile)
-	if err != nil {
-		return nil, err
-	}
-
-	s.indexes[name] = idx
-	return idx, nil
 }
 
 // Shard returns a shard by id.
@@ -630,25 +589,15 @@ func (s *Store) CreateShard(database, retentionPolicy string, shardID uint64, en
 		return err
 	}
 
-	// Retrieve database series file.
-	sfile, err := s.openSeriesFile(database)
-	if err != nil {
-		return err
-	}
-
-	// Retrieve shared index, if needed.
-	idx, err := s.createIndexIfNotExists(database)
-	if err != nil {
-		return err
-	}
-
 	// Copy index options and pass in shared index.
 	opt := s.EngineOptions
-	opt.InmemIndex = idx
 	opt.SeriesIDSets = shardSet{store: s, db: database}
 
 	path := filepath.Join(s.path, database, retentionPolicy, strconv.FormatUint(shardID, 10))
-	shard := NewShard(shardID, path, walPath, sfile, opt)
+	shard, err := NewShard(shardID, path, walPath, opt)
+	if err != nil {
+		return err
+	}
 	shard.WithLogger(s.baseLogger)
 	shard.EnableOnOpen = enabled
 
@@ -1130,7 +1079,6 @@ func (s *Store) sketchesForDatabase(dbName string, getSketches func(*Shard) (est
 //
 // Cardinality is calculated exactly by unioning all shards' bitsets of series
 // IDs. The result of this method cannot be combined with any other results.
-//
 func (s *Store) SeriesCardinality(ctx context.Context, database string) (int64, error) {
 	s.mu.RLock()
 	shards := s.filterShards(byDatabase(database))
@@ -1873,7 +1821,6 @@ func (s *Store) TagValues(ctx context.Context, auth query.FineAuthorizer, shardI
 //
 // TODO(edd): a Tournament based merge (see: Knuth's TAOCP 5.4.1) might be more
 // appropriate at some point.
-//
 func mergeTagValues(valueIdxs [][2]int, tvs ...tagValues) TagValues {
 	var result TagValues
 	if len(tvs) == 0 {
