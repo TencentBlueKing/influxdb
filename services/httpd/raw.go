@@ -33,6 +33,29 @@ const (
 	ContentEncodingSnappy = "snappy"
 )
 
+func (h *Handler) showDatabase(w http.ResponseWriter, r *http.Request) {
+	db := r.FormValue("db")
+
+	var (
+		out []byte
+		err error
+	)
+	if db != "" {
+		dbInfo := h.MetaClient.Database(db)
+		out, err = json.Marshal(dbInfo)
+	} else {
+		dbListInfo := h.MetaClient.Databases()
+		out, err = json.Marshal(dbListInfo)
+	}
+
+	if err != nil {
+		h.httpError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write(out)
+}
+
 func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta.User) {
 	rw, ok := w.(ResponseWriter)
 	if !ok {
@@ -46,9 +69,15 @@ func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta
 	where := strings.TrimSpace(r.FormValue("where"))
 
 	slimitStr := r.FormValue("slimit")
-	slimit, err := strconv.ParseInt(slimitStr, 10, 64)
+	slimit, err := strconv.Atoi(slimitStr)
 	if err != nil {
 		slimit = math.MaxInt64
+	}
+
+	limitStr := r.FormValue("limit")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		limit = math.MaxInt64
 	}
 
 	readRequest, err := GetReadRequest(db, rp, measurement, field, where)
@@ -67,7 +96,7 @@ func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta
 		defer rs.Close()
 	}
 
-	readResponse, err := GetReadResponse(rs, slimit)
+	readResponse, err := GetReadResponse(rs, slimit, limit)
 	if err != nil {
 		h.httpError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -115,16 +144,21 @@ func (f *FormatWriter) Response(resp *remote.ReadResponse) error {
 	return err
 }
 
-func GetReadResponse(rs reads.ResultSet, slimit int64) (*remote.ReadResponse, error) {
+func GetReadResponse(rs reads.ResultSet, slimit, limit int) (*remote.ReadResponse, error) {
 	resp := &remote.ReadResponse{
 		Results: []*remote.QueryResult{{}},
 	}
 	if rs == nil {
 		return resp, nil
 	}
-	seriesIndex := int64(0)
+	seriesNum := 0
+	pointsNum := 0
+
 	for rs.Next() {
-		if slimit > 0 && seriesIndex >= slimit {
+		if slimit > 0 && seriesNum >= slimit {
+			return resp, nil
+		}
+		if limit > 0 && pointsNum >= limit {
 			return resp, nil
 		}
 
@@ -153,6 +187,7 @@ func GetReadResponse(rs reads.ResultSet, slimit int64) (*remote.ReadResponse, er
 				}
 
 				for i, ts := range a.Timestamps {
+					pointsNum++
 					series.Samples = append(series.Samples, &remote.Sample{
 						TimestampMs: ts / int64(time.Millisecond),
 						Value:       a.Values[i],
@@ -162,7 +197,7 @@ func GetReadResponse(rs reads.ResultSet, slimit int64) (*remote.ReadResponse, er
 
 			// There was data for the series.
 			if series != nil {
-				seriesIndex++
+				seriesNum++
 				resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, series)
 			}
 		case tsdb.IntegerArrayCursor:
@@ -181,6 +216,7 @@ func GetReadResponse(rs reads.ResultSet, slimit int64) (*remote.ReadResponse, er
 				}
 
 				for i, ts := range a.Timestamps {
+					pointsNum++
 					series.Samples = append(series.Samples, &remote.Sample{
 						TimestampMs: ts / int64(time.Millisecond),
 						Value:       float64(a.Values[i]),
@@ -190,7 +226,7 @@ func GetReadResponse(rs reads.ResultSet, slimit int64) (*remote.ReadResponse, er
 
 			// There was data for the series.
 			if series != nil {
-				seriesIndex++
+				seriesNum++
 				resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, series)
 			}
 		case tsdb.UnsignedArrayCursor:

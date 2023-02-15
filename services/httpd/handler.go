@@ -220,6 +220,10 @@ func NewHandler(c Config) *Handler {
 			"raw data read", // raw read
 			"GET", "/api/v1/raw/read", true, true, h.serveRawRead,
 		},
+		{
+			"show database",
+			"GET", "/api/v1/raw/database", true, true, h.showDatabase,
+		},
 		Route{ // Ping
 			"ping",
 			"GET", "/ping", false, true, authWrapper(h.servePing),
