@@ -279,6 +279,12 @@ func (s *Server) appendRetentionPolicyService(c retention.Config) {
 	s.Services = append(s.Services, srv)
 }
 
+func (s *Server) appendGrpcService(address string) {
+	ss := storage.NewStore(s.TSDBStore, s.MetaClient)
+	srv := httpd.NewGrpcService(address, ss)
+	s.Services = append(s.Services, srv)
+}
+
 func (s *Server) appendHTTPDService(c httpd.Config) {
 	if !c.Enabled {
 		return
@@ -397,6 +403,7 @@ func (s *Server) Open() error {
 	// Append services.
 	s.appendMonitorService()
 	s.appendPrecreatorService(s.config.Precreator)
+	s.appendGrpcService(s.config.GrpcAddress)
 	s.appendSnapshotterService()
 	s.appendContinuousQueryService(s.config.ContinuousQuery)
 	s.appendHTTPDService(s.config.HTTPD)

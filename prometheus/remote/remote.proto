@@ -15,7 +15,22 @@
 
 syntax = "proto3";
 
+option go_package="./;remote";
 package remote;
+
+service QueryTimeSeriesService {
+  rpc Raw(FilterRequest) returns (stream TimeSeries) {};
+}
+
+message FilterRequest {
+  string db = 1;
+  string rp = 2;
+  string measurement = 3;
+  string field = 4;
+  string where = 5;
+  int64 slimit = 6;
+  int64 limit = 7;
+}
 
 message Sample {
   double value       = 1;

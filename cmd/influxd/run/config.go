@@ -35,6 +35,7 @@ import (
 const (
 	// DefaultBindAddress is the default address for various RPC services.
 	DefaultBindAddress = "127.0.0.1:8088"
+	DefaultGrpcAddress = "127.0.0.1:8089"
 )
 
 // Config represents the configuration format for the influxd binary.
@@ -61,6 +62,7 @@ type Config struct {
 
 	// BindAddress is the address that all TCP services use (Raft, Snapshot, Cluster, etc.)
 	BindAddress string `toml:"bind-address"`
+	GrpcAddress string `toml:"grpc-address"`
 
 	// TLS provides configuration options for all https endpoints.
 	TLS tlsconfig.Config `toml:"tls"`
@@ -87,6 +89,7 @@ func NewConfig() *Config {
 	c.ContinuousQuery = continuous_querier.NewConfig()
 	c.Retention = retention.NewConfig()
 	c.BindAddress = DefaultBindAddress
+	c.GrpcAddress = DefaultGrpcAddress
 
 	return c
 }
@@ -206,6 +209,7 @@ func (c *Config) Diagnostics() (*diagnostics.Diagnostics, error) {
 	return diagnostics.RowFromMap(map[string]interface{}{
 		"reporting-disabled": c.ReportingDisabled,
 		"bind-address":       c.BindAddress,
+		"grpc-address":       c.GrpcAddress,
 	}), nil
 }
 
