@@ -62,6 +62,8 @@ type Config struct {
 
 	// BindAddress is the address that all TCP services use (Raft, Snapshot, Cluster, etc.)
 	BindAddress string `toml:"bind-address"`
+
+	// GrpcAddress is the address that raw query services
 	GrpcAddress string `toml:"grpc-address"`
 
 	// TLS provides configuration options for all https endpoints.
