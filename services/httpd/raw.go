@@ -69,13 +69,13 @@ func (h *Handler) serveRawRead(w http.ResponseWriter, r *http.Request, user meta
 	where := strings.TrimSpace(r.FormValue("where"))
 
 	slimitStr := r.FormValue("slimit")
-	slimit, err := strconv.Atoi(slimitStr)
+	slimit, err := strconv.ParseInt(slimitStr, 10, 64)
 	if err != nil {
 		slimit = math.MaxInt64
 	}
 
 	limitStr := r.FormValue("limit")
-	limit, err := strconv.Atoi(limitStr)
+	limit, err := strconv.ParseInt(limitStr, 10, 64)
 	if err != nil {
 		limit = math.MaxInt64
 	}
@@ -144,15 +144,15 @@ func (f *FormatWriter) Response(resp *remote.ReadResponse) error {
 	return err
 }
 
-func GetReadResponse(rs reads.ResultSet, slimit, limit int) (*remote.ReadResponse, error) {
+func GetReadResponse(rs reads.ResultSet, slimit, limit int64) (*remote.ReadResponse, error) {
 	resp := &remote.ReadResponse{
 		Results: []*remote.QueryResult{{}},
 	}
 	if rs == nil {
 		return resp, nil
 	}
-	seriesNum := 0
-	pointsNum := 0
+	seriesNum := int64(0)
+	pointsNum := int64(0)
 
 	for rs.Next() {
 		if slimit > 0 && seriesNum >= slimit {
