@@ -40,6 +40,12 @@ func (s *Server) Raw(req *remote.FilterRequest, stream remote.QueryTimeSeriesSer
 	)
 
 	for rs.Next() {
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		default:
+		}
+
 		cur := rs.Cursor()
 		if cur == nil {
 			continue
