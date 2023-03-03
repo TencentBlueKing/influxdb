@@ -32,6 +32,8 @@ func (s *Server) Raw(req *remote.FilterRequest, stream remote.QueryTimeSeriesSer
 	}
 	if rs != nil {
 		defer rs.Close()
+	} else {
+		return nil
 	}
 
 	var (
