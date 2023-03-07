@@ -48,16 +48,6 @@ func (s *Server) Raw(req *remote.FilterRequest, stream remote.QueryTimeSeriesSer
 		default:
 		}
 
-		cur := rs.Cursor()
-		if cur == nil {
-			continue
-		}
-
-		tags := prometheus.RemoveInfluxSystemTags(rs.Tags())
-		series := &remote.TimeSeries{
-			Labels: prometheus.ModelTagsToLabelPairs(tags),
-		}
-
 		if req.GetSlimit() > 0 && seriesNum >= req.GetSlimit() {
 			return nil
 		}
@@ -65,64 +55,83 @@ func (s *Server) Raw(req *remote.FilterRequest, stream remote.QueryTimeSeriesSer
 			return nil
 		}
 
-		var unsupportedCursor string
-		switch cur := cur.(type) {
-		case tsdb.FloatArrayCursor:
-			for {
-				a := cur.Next()
-				if a.Len() == 0 {
-					goto ADD
+		err = func(stream remote.QueryTimeSeriesService_RawServer) error {
+			cur := rs.Cursor()
+			if cur == nil {
+				return nil
+			}
+			tags := prometheus.RemoveInfluxSystemTags(rs.Tags())
+			series := &remote.TimeSeries{
+				Labels: prometheus.ModelTagsToLabelPairs(tags),
+			}
+
+			defer func() {
+				cur.Close()
+
+				if len(series.Samples) > 0 {
+					seriesNum++
+					stream.Send(series)
 				}
+			}()
 
-				for i, ts := range a.Timestamps {
-					pointsNum++
-					series.Samples = append(series.Samples, &remote.Sample{
-						TimestampMs: ts / int64(time.Millisecond),
-						Value:       a.Values[i],
-					})
+			var unsupportedCursor string
+			switch cur := cur.(type) {
+			case tsdb.FloatArrayCursor:
+				for {
+					a := cur.Next()
+					if a.Len() == 0 {
+						return nil
+					}
 
-					if req.GetLimit() > 0 && pointsNum >= req.GetLimit() {
-						goto ADD
+					for i, ts := range a.Timestamps {
+						pointsNum++
+						series.Samples = append(series.Samples, &remote.Sample{
+							TimestampMs: ts / int64(time.Millisecond),
+							Value:       a.Values[i],
+						})
+
+						if req.GetLimit() > 0 && pointsNum >= req.GetLimit() {
+							return nil
+						}
 					}
 				}
-			}
-		case tsdb.IntegerArrayCursor:
-			for {
-				a := cur.Next()
-				if a.Len() == 0 {
-					goto ADD
-				}
+			case tsdb.IntegerArrayCursor:
+				for {
+					a := cur.Next()
+					if a.Len() == 0 {
+						return nil
+					}
 
-				for i, ts := range a.Timestamps {
-					pointsNum++
-					series.Samples = append(series.Samples, &remote.Sample{
-						TimestampMs: ts / int64(time.Millisecond),
-						Value:       float64(a.Values[i]),
-					})
+					for i, ts := range a.Timestamps {
+						pointsNum++
+						series.Samples = append(series.Samples, &remote.Sample{
+							TimestampMs: ts / int64(time.Millisecond),
+							Value:       float64(a.Values[i]),
+						})
 
-					if req.GetLimit() > 0 && pointsNum >= req.GetLimit() {
-						goto ADD
+						if req.GetLimit() > 0 && pointsNum >= req.GetLimit() {
+							return nil
+						}
 					}
 				}
+			case tsdb.UnsignedArrayCursor:
+				unsupportedCursor = "uint"
+			case tsdb.BooleanArrayCursor:
+				unsupportedCursor = "bool"
+			case tsdb.StringArrayCursor:
+				unsupportedCursor = "string"
+			default:
+				return fmt.Errorf("unreachable: %T", cur)
 			}
-		case tsdb.UnsignedArrayCursor:
-			unsupportedCursor = "uint"
-		case tsdb.BooleanArrayCursor:
-			unsupportedCursor = "bool"
-		case tsdb.StringArrayCursor:
-			unsupportedCursor = "string"
-		default:
-			return fmt.Errorf("unreachable: %T", cur)
-		}
-		cur.Close()
 
-		if len(unsupportedCursor) > 0 {
-			return fmt.Errorf("raw can't read cursor, cursor_type: %s, series: %s", unsupportedCursor, tags)
-		}
-	ADD:
-		if len(series.Samples) > 0 {
-			seriesNum++
-			stream.Send(series)
+			if len(unsupportedCursor) > 0 {
+				return fmt.Errorf("raw can't read cursor, cursor_type: %s, series: %s", unsupportedCursor, tags)
+			}
+			return nil
+		}(stream)
+
+		if err != nil {
+			return err
 		}
 	}
 
