@@ -157,13 +157,26 @@ type Shard struct {
 }
 
 // NewShard returns a new initialized Shard. walPath doesn't apply to the b1 type index
-func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt EngineOptions) *Shard {
+func NewShard(id uint64, path string, walPath string, opt EngineOptions) (*Shard, error) {
 	db, rp := decodeStorePath(path)
 	logger := zap.NewNop()
 	if opt.FieldValidator == nil {
 		opt.FieldValidator = defaultFieldValidator{}
 	}
 
+	sfile := NewSeriesFile(filepath.Join(path, SeriesFileDirectory))
+	sfile.WithMaxCompactionConcurrency(opt.Config.SeriesFileMaxConcurrentSnapshotCompactions)
+	sfile.Logger = logger
+	if err := sfile.Open(); err != nil {
+		return nil, err
+	}
+
+	idx, err := NewInmemIndex(db, sfile)
+	if err != nil {
+		return nil, err
+	}
+
+	opt.InmemIndex = idx
 	s := &Shard{
 		id:      id,
 		path:    path,
@@ -188,7 +201,7 @@ func NewShard(id uint64, path string, walPath string, sfile *SeriesFile, opt Eng
 		baseLogger:   logger,
 		EnableOnOpen: true,
 	}
-	return s
+	return s, nil
 }
 
 // WithLogger sets the logger on the shard. It must be called before Open.
@@ -515,7 +528,6 @@ const (
 // will store points written stats into the int64 pointer associated with
 // StatPointsWritten and the number of values written in the int64 pointer
 // stored in the StatValuesWritten context values.
-//
 func (s *Shard) WritePointsWithContext(ctx context.Context, points []models.Point) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
