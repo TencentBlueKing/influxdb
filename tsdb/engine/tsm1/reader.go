@@ -1216,9 +1216,9 @@ func (d *indirectIndex) UnmarshalBinary(b []byte) error {
 	// each key is a time ordered list of index entry blocks for that key.  The loop below
 	// basically skips across the slice keeping track of the counter when we are at a key
 	// field.
-	var i int32
-	var offsets []int32
-	iMax := int32(len(b))
+	var i int64
+	var offsets []int64
+	iMax := int64(len(b))
 	for i < iMax {
 		offsets = append(offsets, i)
 
@@ -1227,13 +1227,13 @@ func (d *indirectIndex) UnmarshalBinary(b []byte) error {
 		if i+2 >= iMax {
 			return fmt.Errorf("indirectIndex: not enough data for key length value")
 		}
-		i += 3 + int32(binary.BigEndian.Uint16(b[i:i+2]))
+		i += 3 + int64(binary.BigEndian.Uint16(b[i:i+2]))
 
 		// count of index entries
 		if i+indexCountSize >= iMax {
 			return fmt.Errorf("indirectIndex: not enough data for index entries count")
 		}
-		count := int32(binary.BigEndian.Uint16(b[i : i+indexCountSize]))
+		count := int64(binary.BigEndian.Uint16(b[i : i+indexCountSize]))
 		i += indexCountSize
 
 		// Find the min time for the block
